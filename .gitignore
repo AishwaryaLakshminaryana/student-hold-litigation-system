@@ -5,4 +5,5 @@ dist/
 apps/api/dist/
 apps/web/dist/
 uploads/
-*.log
+*.log*.tsbuildinfo
+apps/web/tsconfig.tsbuildinfo
