@@ -1,0 +1,342 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ATTORNEY_ADMIN
+  LEGAL_STAFF
+  AUDITOR
+  STUDENT_PORTAL
+  INSTITUTION_CONTACT
+}
+
+enum HoldStatus {
+  REPORTED
+  VERIFICATION_REQUIRED
+  ACTIVE
+  UNDER_REVIEW
+  INSTITUTION_RESPONSE_PENDING
+  ITS_FOLLOW_UP_REQUIRED
+  LEGAL_REVIEW_REQUIRED
+  ESCALATED
+  RESOLUTION_PENDING
+  LIFT_REQUESTED
+  LIFT_CONFIRMED
+  CLOSED
+  REOPENED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  WAITING_FOR_INSTITUTION
+  WAITING_FOR_STUDENT
+  WAITING_FOR_ATTORNEY
+  COMPLETED
+  CANCELLED
+  OVERDUE
+}
+
+model User {
+  id          String       @id @default(cuid())
+  email       String       @unique
+  name        String
+  role        Role
+  active      Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  students    Student[]    @relation("owner")
+  auditEvents AuditEvent[]
+}
+
+model Institution {
+  id       String               @id @default(cuid())
+  name     String
+  campus   String?
+  students Student[]
+  holds    Hold[]
+  contacts InstitutionContact[]
+}
+
+model InstitutionContact {
+  id            String      @id @default(cuid())
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id])
+  name          String
+  title         String?
+  department    String?
+  email         String?
+  phone         String?
+  address       String?
+  holds         Hold[]
+}
+
+model Student {
+  id               String          @id @default(cuid())
+  clientId         String          @unique
+  legalName        String
+  preferredName    String?
+  email            String?
+  phone            String?
+  mailingAddress   String?
+  studentRef       String?
+  program          String?
+  enrollmentStatus String?
+  preferredContact String?
+  intakeDate       DateTime        @default(now())
+  consentStatus    String
+  conflictStatus   String
+  notes            String?         @db.Text
+  status           String          @default("Active")
+  institutionId    String
+  institution      Institution     @relation(fields: [institutionId], references: [id])
+  ownerId          String
+  owner            User            @relation("owner", fields: [ownerId], references: [id])
+  holds            Hold[]
+  matters          LegalMatter[]
+  communications   Communication[]
+  tasks            Task[]
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  version          Int             @default(1)
+}
+
+model Hold {
+  id                  String              @id @default(cuid())
+  holdId              String              @unique
+  studentId           String
+  student             Student             @relation(fields: [studentId], references: [id])
+  institutionId       String
+  institution         Institution         @relation(fields: [institutionId], references: [id])
+  contactId           String?
+  contact             InstitutionContact? @relation(fields: [contactId], references: [id])
+  category            String
+  name                String
+  reason              String              @db.Text
+  department          String
+  discoveredAt        DateTime
+  effectiveAt         DateTime?
+  status              HoldStatus          @default(REPORTED)
+  priority            Priority            @default(MEDIUM)
+  amount              Decimal?            @db.Decimal(12, 2)
+  restrictions        String?             @db.Text
+  source              String?
+  requestedResolution String?             @db.Text
+  nextFollowUp        DateTime?
+  assignedToId        String?
+  internalNotes       String?             @db.Text
+  confidentiality     String              @default("CONFIDENTIAL")
+  liftedAt            DateTime?
+  liftedBy            String?
+  closureNotes        String?             @db.Text
+  deletedAt           DateTime?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  version             Int                 @default(1)
+  statusHistory       HoldStatusHistory[]
+  matterLinks         HoldMatterLink[]
+  communications      Communication[]
+  tasks               Task[]
+  preservedRecords    PreservedRecord[]
+  notifications       Notification[]
+}
+
+model HoldStatusHistory {
+  id         String      @id @default(cuid())
+  holdId     String
+  hold       Hold        @relation(fields: [holdId], references: [id])
+  fromStatus HoldStatus?
+  toStatus   HoldStatus
+  reason     String?     @db.Text
+  actorId    String
+  createdAt  DateTime    @default(now())
+}
+
+model LegalMatter {
+  id                    String             @id @default(cuid())
+  matterId              String             @unique
+  title                 String
+  studentId             String
+  student               Student            @relation(fields: [studentId], references: [id])
+  matterType            String
+  forum                 String?
+  caseNumber            String?
+  jurisdiction          String?
+  respondingParty       String?
+  opposingCounsel       String?
+  responsibleAttorneyId String
+  openDate              DateTime
+  stage                 String
+  status                String
+  importantDates        Json?
+  privilegedNotes       String?            @db.Text
+  outcome               String?            @db.Text
+  closeDate             DateTime?
+  holdLinks             HoldMatterLink[]
+  communications        Communication[]
+  tasks                 Task[]
+  searches              LitigationSearch[]
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+}
+
+model HoldMatterLink {
+  holdId      String
+  matterId    String
+  hold        Hold        @relation(fields: [holdId], references: [id])
+  matter      LegalMatter @relation(fields: [matterId], references: [id])
+  matchReason String?     @db.Text
+  decision    String      @default("PENDING")
+  decidedBy   String?
+  decidedAt   DateTime?
+
+  @@id([holdId, matterId])
+}
+
+model Communication {
+  id                 String       @id @default(cuid())
+  studentId          String
+  student            Student      @relation(fields: [studentId], references: [id])
+  holdId             String?
+  hold               Hold?        @relation(fields: [holdId], references: [id])
+  matterId           String?
+  matter             LegalMatter? @relation(fields: [matterId], references: [id])
+  type               String
+  direction          String
+  sender             String
+  recipients         Json
+  cc                 Json?
+  subject            String?
+  occurredAt         DateTime
+  bodySummary        String?      @db.Text
+  confidentiality    String
+  preservationStatus String
+  followUpOwner      String?
+  followUpDate       DateTime?
+  complete           Boolean      @default(false)
+  attachments        Attachment[]
+  createdAt          DateTime     @default(now())
+}
+
+model Attachment {
+  id              String         @id @default(cuid())
+  communicationId String?
+  communication   Communication? @relation(fields: [communicationId], references: [id])
+  originalName    String
+  objectKey       String
+  mimeType        String
+  sizeBytes       Int
+  sha256          String?
+  version         Int            @default(1)
+  createdAt       DateTime       @default(now())
+}
+
+model PreservedRecord {
+  id                 String    @id @default(cuid())
+  holdId             String
+  hold               Hold      @relation(fields: [holdId], references: [id])
+  originalName       String
+  objectKey          String
+  mimeType           String
+  sizeBytes          Int
+  sha256             String?
+  source             String
+  retentionClass     String
+  preservationStatus String
+  supersedesId       String?
+  uploadedBy         String
+  accessLog          Json?
+  deletedAt          DateTime?
+  createdAt          DateTime  @default(now())
+}
+
+model Task {
+  id                 String       @id @default(cuid())
+  title              String
+  studentId          String
+  student            Student      @relation(fields: [studentId], references: [id])
+  holdId             String?
+  hold               Hold?        @relation(fields: [holdId], references: [id])
+  matterId           String?
+  matter             LegalMatter? @relation(fields: [matterId], references: [id])
+  department         String
+  assignedTo         String
+  createdBy          String
+  dueDate            DateTime
+  priority           Priority
+  status             TaskStatus   @default(NOT_STARTED)
+  dependency         String?
+  reminder           Json?
+  notes              String?      @db.Text
+  completedAt        DateTime?
+  completionEvidence String?      @db.Text
+  createdAt          DateTime     @default(now())
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  holdId    String
+  hold      Hold      @relation(fields: [holdId], references: [id])
+  audience  String
+  recipient String
+  subject   String
+  body      String    @db.Text
+  status    String    @default("DRAFT")
+  sentAt    DateTime?
+  createdAt DateTime  @default(now())
+}
+
+model LitigationSearch {
+  id                 String      @id @default(cuid())
+  matterId           String
+  matter             LegalMatter @relation(fields: [matterId], references: [id])
+  source             String
+  searchTerms        String      @db.Text
+  searchedAt         DateTime
+  searchedBy         String
+  result             String      @db.Text
+  evidenceLink       String?
+  followUpNeeded     Boolean
+  verificationStatus String
+  createdAt          DateTime    @default(now())
+}
+
+model AuditEvent {
+  id         String   @id @default(cuid())
+  actorId    String
+  actor      User     @relation(fields: [actorId], references: [id])
+  action     String
+  recordType String
+  recordId   String
+  before     Json?
+  after      Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@index([recordType, recordId, createdAt])
+}
+
+model Configuration {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+model RetentionRule {
+  id         String  @id @default(cuid())
+  name       String
+  recordType String
+  years      Int
+  active     Boolean @default(true)
+}
