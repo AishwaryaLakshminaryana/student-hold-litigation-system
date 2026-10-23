@@ -10,7 +10,73 @@ app.use(async(req,res,next)=>{ if(process.env.DEV_AUTH!=="true") return res.stat
 const allow=(...roles:Role[])=> (req:any,res:any,next:any)=>roles.includes(req.actor.role)?next():res.status(403).json({error:"Forbidden"});
 const audit=(actorId:string,action:string,recordType:string,recordId:string,before?:any,after?:any)=>db.auditEvent.create({data:{actorId,action,recordType,recordId,before,after}});
 app.get("/api/dashboard",async(_req,res)=>{const [active,verify,legal,its,overdue,alerts,recent]=await Promise.all([db.hold.count({where:{status:"ACTIVE"}}),db.hold.count({where:{status:"VERIFICATION_REQUIRED"}}),db.hold.count({where:{status:"LEGAL_REVIEW_REQUIRED"}}),db.hold.count({where:{status:"ITS_FOLLOW_UP_REQUIRED"}}),db.task.count({where:{dueDate:{lt:new Date()},status:{not:"COMPLETED"}}}),db.holdMatterLink.count({where:{decision:"PENDING"}}),db.hold.findMany({take:6,orderBy:{updatedAt:"desc"},include:{student:true,institution:true}})]);res.json({cards:{active,verify,legal,its,overdue,alerts},recent});});
+const studentInput = z.object({
+  legalName: z.string().min(2),
+  preferredName: z.string().optional(),
+  email: z.string().email().optional().or(z.literal("")),
+  phone: z.string().optional(),
+  mailingAddress: z.string().optional(),
+
+  institutionId: z.string().min(1),
+  studentRef: z.string().optional(),
+  program: z.string().optional(),
+  enrollmentStatus: z.string().optional(),
+
+  preferredContact: z.string().optional(),
+  consentStatus: z.string().min(1),
+  conflictStatus: z.string().min(1),
+  notes: z.string().optional()
+});
+
 app.get("/api/students",async(_req,res)=>res.json(await db.student.findMany({include:{institution:true,_count:{select:{holds:true,matters:true}}},orderBy:{legalName:"asc"}})));
+app.post(
+  "/api/students",
+  allow("ATTORNEY_ADMIN", "LEGAL_STAFF"),
+  async (req, res) => {
+    const data = studentInput.parse(req.body);
+
+    const count = await db.student.count();
+
+    const student = await db.student.create({
+      data: {
+        clientId: `STU-${String(count + 1).padStart(5, "0")}`,
+        legalName: data.legalName,
+        preferredName: data.preferredName || null,
+        email: data.email || null,
+        phone: data.phone || null,
+        mailingAddress: data.mailingAddress || null,
+        institutionId: data.institutionId,
+        studentRef: data.studentRef || null,
+        program: data.program || null,
+        enrollmentStatus: data.enrollmentStatus || null,
+        preferredContact: data.preferredContact || null,
+        consentStatus: data.consentStatus,
+        conflictStatus: data.conflictStatus,
+        notes: data.notes || null,
+        ownerId: req.actor!.id,
+        status: "Active"
+      },
+      include: {
+        institution: true
+      }
+    });
+
+    await audit(
+      req.actor!.id,
+      "CREATE",
+      "Student",
+      student.id,
+      undefined,
+      {
+        clientId: student.clientId,
+        legalName: student.legalName
+      }
+    );
+
+    res.status(201).json(student);
+  }
+);
+
 app.get("/api/holds",async(req,res)=>res.json(await db.hold.findMany({where:req.query.status?{status:req.query.status as HoldStatus}:undefined,include:{student:true,institution:true,contact:true,statusHistory:{orderBy:{createdAt:"desc"}},matterLinks:{include:{matter:true}}},orderBy:{updatedAt:"desc"}})));
 app.get("/api/tasks",async(_req,res)=>res.json(await db.task.findMany({include:{student:true,hold:true},orderBy:{dueDate:"asc"}})));
 app.get("/api/matters",async(_req,res)=>res.json(await db.legalMatter.findMany({include:{student:true,holdLinks:{include:{hold:true}}},orderBy:{updatedAt:"desc"}})));
@@ -21,3 +87,12 @@ app.post("/api/holds/:id/lift",allow("ATTORNEY_ADMIN"),async(req,res)=>{const p=
 app.get("/api/audit",allow("ATTORNEY_ADMIN","AUDITOR"),async(_req,res)=>res.json(await db.auditEvent.findMany({take:100,include:{actor:true},orderBy:{createdAt:"desc"}})));
 app.use((e:any,_req:any,res:any,_next:any)=>res.status(e?.name==="ZodError"?400:500).json({error:e?.issues||"Unexpected error"}));
 app.listen(Number(process.env.PORT||4000),()=>console.log("API on :4000"));
+app.get("/api/institutions", async (_req, res) => {
+  const institutions = await db.institution.findMany({
+    orderBy: {
+      name: "asc"
+    }
+  });
+
+  res.json(institutions);
+});
