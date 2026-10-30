@@ -3,7 +3,7 @@ import cors from "cors";
 import helmet from "helmet";
 import { PrismaClient, HoldStatus, Role } from "@prisma/client";
 import { z } from "zod";
-const db=new PrismaClient(); const app=express(); app.use(helmet()); app.use(cors({origin:process.env.WEB_ORIGIN||"http://localhost:5173"})); app.use(express.json({limit:"1mb"}));
+const db=new PrismaClient(); const app=express(); app.use(helmet()); app.use(cors({origin:process.env.WEB_ORIGIN||"http://localhost:5174"})); app.use(express.json({limit:"1mb"}));
 type Actor={id:string;role:Role;name:string};
 declare global { namespace Express { interface Request { actor?:Actor } } }
 app.use(async(req,res,next)=>{ if(process.env.DEV_AUTH!=="true") return res.status(501).json({error:"OIDC adapter must be configured"}); const user=await db.user.findFirst({where:{active:true}}); if(!user)return res.status(401).end(); req.actor={id:user.id,role:user.role,name:user.name}; next(); });
@@ -29,6 +29,53 @@ const studentInput = z.object({
 });
 
 app.get("/api/students",async(_req,res)=>res.json(await db.student.findMany({include:{institution:true,_count:{select:{holds:true,matters:true}}},orderBy:{legalName:"asc"}})));
+
+app.get("/api/students/:id", async (req, res) => {
+  const student = await db.student.findUnique({
+    where: {
+      id: req.params.id
+    },
+    include: {
+      institution: true,
+
+      holds: {
+        include: {
+          institution: true
+        },
+        orderBy: {
+          updatedAt: "desc"
+        }
+      },
+
+      matters: {
+        orderBy: {
+          updatedAt: "desc"
+        }
+      },
+
+      tasks: {
+        orderBy: {
+          dueDate: "asc"
+        }
+      },
+
+      communications: {
+        orderBy: {
+          occurredAt: "desc"
+        }
+      }
+    }
+  });
+
+  if (!student) {
+    return res.status(404).json({
+      error: "Student not found"
+    });
+  }
+
+  res.json(student);
+});
+
 app.post(
   "/api/students",
   allow("ATTORNEY_ADMIN", "LEGAL_STAFF"),

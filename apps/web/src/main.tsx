@@ -13,9 +13,8 @@ import {
   Menu,
   X,
 } from "lucide-react";
-import "./styles.css";
 
-const API = "http://localhost:4000/api";
+const API = "http:" + "//localhost:4000/api";
 type Tab = "Dashboard" | "Students" | "Holds" | "Matters" | "Tasks" | "Audit";
 type Institution = { id: string; name: string };
 type StudentForm = {
@@ -64,6 +63,8 @@ function App() {
   const [data, setData] = useState<any>(null);
   const [mobile, setMobile] = useState(false);
   const [showStudentForm, setShowStudentForm] = useState(false);
+
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
 
   const loadData = async () => {
     setData(null);
@@ -118,7 +119,7 @@ function App() {
             <button className="primary" onClick={newRecord}>+ New {tab === "Students" ? "Student" : "record"}</button>
           </div>
           {data?.error ? <div className="alert">{data.error}</div> :
-            tab === "Dashboard" ? <Dashboard d={data} /> : <Records tab={tab} d={data} />}
+            selectedStudentId ? <StudentProfile studentId={selectedStudentId}/>: tab === "Dashboard" ? <Dashboard d={data} /> : <Records tab={tab} d={data} setSelectedStudentId={setSelectedStudentId}/>}
         </section>
       </main>
 
@@ -246,14 +247,30 @@ function Dashboard({ d }: any) {
   return <><div className="cards">{Object.entries(d.cards || {}).map(([k, v]) => <div className="card" key={k}><span>{labels[k]}</span><b>{String(v)}</b><small>Open filtered view →</small></div>)}</div><div className="panel"><div className="panelhead"><h2>Recently updated holds</h2><button>View all</button></div><RecordTable rows={d.recent || []} /></div></>;
 }
 
-function Records({ tab, d }: any) {
+function Records({ tab, d, setSelectedStudentId }: any) {
   if (!d) return <p>Loading…</p>;
   const rows = Array.isArray(d) ? d : [];
-  return <div className="panel"><div className="panelhead"><h2>{rows.length} records</h2><button>Filter</button></div><RecordTable rows={rows} />{!rows.length && <div className="empty">No records in this view.</div>}</div>;
+  const openStudent = (id: string) => {setSelectedStudentId(id);};
+  return <div className="panel"><div className="panelhead"><h2>{rows.length} records</h2><button>Filter</button></div><RecordTable rows={rows} onRowClick={tab === "Students"? openStudent : undefined} />{!rows.length && <div className="empty">No records in this view.</div>}</div>;
 }
 
-function RecordTable({ rows }: { rows: any[] }) {
-  return <table><thead><tr><th>Record</th><th>Related party</th><th>Status / details</th><th>Updated / due</th></tr></thead><tbody>{rows.map((x: any) => <tr key={x.id}><td>{x.holdId || x.clientId || x.matterId || x.title || x.action}<small>{x.name || x.legalName || x.recordType}</small></td><td>{x.student?.legalName || x.institution?.name || x.actor?.name || "—"}</td><td>{x.status ? <Status s={x.status} /> : x.role || x.matchReason || x.department || "—"}</td><td>{(x.updatedAt || x.dueDate || x.createdAt || "").slice(0, 10)}</td></tr>)}</tbody></table>;
+type StudentProfileData = {id: string; clientId: string; legalName: string; preferredName?: string| null; email?: string| null; phone?: string| null; institution?: {name:string}|null; holds?: any[]; matters?: any[]; tasks?: any[]; communications?: any[];};
+
+function StudentProfile({ studentId}: { studentId: string}) {
+  const [student, setStudent] = useState<StudentProfileData | null>(null);
+  useEffect(()=> {fetch(`${API}/students/${studentId}`)
+.then((response)=> response.json())
+.then((data)=>setStudent(data));
+},[studentId]);
+if(!student)return
+<p>Loading student Profiler...</p>;
+;
+  return <div className="panel"><h2>{student.legalName}</h2><p>
+    <b>Client Id:</b>{student.clientId}</p><p><b>Email:</b>{student.email ||"-"}</p><p><b>Phone:</b>{student.phone ||"-"}</p><p><b>Institution:</b>{student.institution?.name ||"-"}</p></div>;
+}
+
+function RecordTable({ rows, onRowClick }: { rows: any[]; onRowClick?:(id:string)=> void }) {
+  return <table><thead><tr><th>Record</th><th>Related party</th><th>Status / details</th><th>Updated / due</th></tr></thead><tbody>{rows.map((x: any) => <tr key={x.id} onClick={() => onRowClick?.(x.id)} style={{cursor: onRowClick ? "pointer" : "default"}}><td>{x.holdId || x.clientId || x.matterId || x.title || x.action}<small>{x.name || x.legalName || x.recordType}</small></td><td>{x.student?.legalName || x.institution?.name || x.actor?.name || "—"}</td><td>{x.status ? <Status s={x.status} /> : x.role || x.matchReason || x.department || "—"}</td><td>{(x.updatedAt || x.dueDate || x.createdAt || "").slice(0, 10)}</td></tr>)}</tbody></table>;
 }
 
 const Status = ({ s }: { s: string }) => <span className="status">● {s.replaceAll("_", " ")}</span>;
